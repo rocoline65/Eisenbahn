@@ -1,0 +1,59 @@
+/**
+ * This is a template for an on-schedule rule. This rule defines
+ * operations that are performed on a set schedule.
+ *
+ * For details, read the Quick Start Guide:
+ * https://www.jetbrains.com/help/youtrack/incloud/2018.4/Quick-Start-Guide-Workflows-JS.html
+ */
+
+var entities = require('@jetbrains/youtrack-scripting-api/entities');
+var dateTime = require('@jetbrains/youtrack-scripting-api/date-time');
+var workflow = require('@jetbrains/youtrack-scripting-api/workflow');
+
+exports.rule = entities.Issue.onSchedule({
+  // TODO: give the rule a human-readable title
+  title: 'Control-of-work-duration',
+  // TODO: define which issues are processed
+  search: '#Unresolved',
+  // TODO: set the schedule
+  // For format details refer to http://www.quartz-scheduler.org/documentation/quartz-2.x/tutorials/crontrigger.html
+  cron: '0 00 9 * * ?',
+  // TODO: to mute notifications for changes that are applied by this rule, set to true
+  muteUpdateNotifications: false,
+  guard: function(ctx) {
+    // TODO: specify the conditions for executing the rule
+    var issue = ctx.issue;
+    return issue.fields.Spent !== null;
+  },
+  action: function(ctx) {
+    var issue = ctx.issue;
+    var days = function(period) {
+      return period.getDays() + 7*period.getWeeks();
+    };
+    
+    // TODO: specify what to do at the scheduled time
+    if ( !issue.fields.Estimate )  issue.fields.Estimate = dateTime.toPeriod('3d');
+    if ( issue.fields.Spent && ( days(issue.fields.Spent) - days(issue.fields.Estimate) > 0 ) )
+      {
+         var titel = workflow.i18n('Превышение срока выполнения задачи {1} , {0} ', dateTime.format(issue.updated), issue.id);
+         var descript = function(){ if ( issue.description === null ) return 'нет'; else return issue.description; }; // описание задачи - если нет "нет"
+         var body = [
+              workflow.i18n('<p>'+'Задача ({0}) "{1}"</p>', issue.id, issue.summary),
+              workflow.i18n('В проекте {0}', issue.project.name),
+              workflow.i18n('срок выполнения превысил плановый более чем на 3 дня'),
+              workflow.i18n('Описание задачи: "{0}"', descript(issue)),
+                            '<i>[YouTrack]: Сообщение создано автоматически. Отвечать не надо</i>',
+                    ].join('\n');
+
+       console.log(entities.Agile.findByName('Internal Board').first().author.fullName, issue.Assignee.fullName );
+        
+        if ( !issue.hasTag("Overdue") ) issue.addTag("Overdue");
+        
+        entities.Agile.findByName('Internal Board').first().author.sendMail(titel, body);
+        issue.Assignee.sendMail(titel, body);
+      }
+  },
+  requirements: {
+    // TODO: add requirements
+  }
+});
